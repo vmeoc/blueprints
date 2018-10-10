@@ -1,0 +1,526 @@
+#note that this blueprint takes advantage of both RDS and EC2 services
+#it is recommended that you either configure your AWS infrastructure so both
+#services will land in the same VPC, or configure VPC Peering between the two
+#that will be used
+inputs:
+  webtiersize:
+    type: string
+    enum:
+      - small
+      - medium
+      - large
+    default: small
+    title: Web Tier Size
+    description: Choose a size for your web tier
+  webtierimage:
+    type: string
+    enum:
+      - ubuntu
+      - centos
+    default: ubuntu
+    title: Web Tier Image
+    description: Choose an image for your web tier
+  clusternodecount:
+    type: integer
+    default: 1
+    title: RDS Cluster Nodes
+    description: Number of Nodes for RDS Cluster
+  rdsinstanceclass:
+    type: string
+    default: db.t2.small
+    title: RDS Instance Class
+    description: Enter the desired RDS Instance Class
+  dbname:
+    type: string
+    default: wordpress_blog
+    title: Database Name
+    description: Enter Database Name
+  dbusername:
+    type: string
+    default: root
+    title: Database Username
+    description: Enter DB Username
+  dbpassword:
+    type: string
+    encrypted: true
+    title: Database Password
+    description: Enter Datbase Password
+  cluster_name:
+    type: string
+    default: cluster_name
+    title: RDS Cluster Name
+    description: Enter RDS Cluster Name
+  finalsnapshot:
+    type: string
+    enum:
+      - 'true'
+      - 'false'
+    default: 'true'
+    title: Skip Final RDS Snapshot
+    description: Set to true to skip final snapshot
+  clusterprefix:
+    type: string
+    default: cluster
+    title: Cluster Name Prefix
+    description: RDS Cluster Name Prefix
+  instanceprefix:
+    type: string
+    default: instance
+    title: Instance Name Prefix
+    description: RDS Instance Name Prefix
+  masterinstance_type:
+    type: string
+    enum:
+      - m1.medium
+      - i2.xlarge
+      - m3.xlarge
+      - m4.xlarge
+    description: Master Instance Type
+    title: Master Instance Type
+    default: m1.medium
+  coreinstance_type:
+    type: string
+    enum:
+      - m1.medium
+      - i2.xlarge
+      - m3.xlarge
+      - m4.xlarge
+    description: Core Instance Type
+    title: Core Instance Type
+    default: m1.medium
+  corenode_count:
+    type: integer
+    description: Number of core nodes
+    title: Number of core nodes
+    default: 1
+  release_number:
+    type: string
+    enum:
+      - emr-4.7.3
+      - emr-4.9.3
+      - emr-4.9.4
+      - emr-5.15.0
+      - emr-5.14.0
+      - emr-5.13.0
+      - emr-5.16.0
+    description: EMR release number
+    title: EMR release number
+    default: emr-5.16.0
+resources:
+  WP-Network-Public:
+    type: Cloud.Network
+    metadata:
+      layoutPosition:
+        - 0
+        - 0
+    properties:
+      name: WP-Network-Public
+      networkType: public
+      constraints:
+        - tag: 'type:public-net'
+        - tag: 'env:dev'
+  LB-transactionsWeb:
+    type: Cloud.LoadBalancer
+    metadata:
+      layoutPosition:
+        - 1
+        - 1
+    properties:
+      name: myapp-lb
+      network: '${WP-Network-Public.name}'
+      instances:
+        - '${webTrConsole.id}'
+      routes:
+        - protocol: HTTP
+          port: '80'
+          instanceProtocol: HTTP
+          instancePort: '80'
+          healthCheckConfiguration:
+            protocol: HTTP
+            port: '80'
+            urlPath: /mywordpresssite/wp-admin/install.php
+            intervalSeconds: 6
+            timeoutSeconds: 5
+            unhealthyThreshold: 2
+            healthyThreshold: 2
+      internetFacing: true
+      count: 0
+  webTrConsole:
+    type: Cloud.Machine
+    dependsOn:
+      - apacheGeode
+    metadata:
+      layoutPosition:
+        - 1
+        - 2
+    properties:
+      constraints:
+        - tag: 'env:dev'
+      image: ubuntu
+      flavor: small
+      networks:
+        - name: '${fp-isonet.name}'
+  clusteringService:
+    type: Cloud.Machine
+    dependsOn:
+      - apacheGeode
+      - redisCache
+      - rabbitMQ
+    metadata:
+      layoutPosition:
+        - 1
+        - 3
+    properties:
+      constraints:
+        - tag: 'env:dev'
+      image: ubuntu
+      flavor: small
+      networks:
+        - name: '${fp-isonet.name}'
+  enricherProcessor:
+    type: Cloud.Machine
+    dependsOn:
+      - apacheGeode
+      - redisCache
+      - rabbitMQ
+    metadata:
+      layoutPosition:
+        - 1
+        - 4
+    properties:
+      constraints:
+        - tag: 'env:dev'
+      image: ubuntu
+      flavor: small
+      networks:
+        - name: '${fp-isonet.name}'
+  fp-isonet:
+    type: Cloud.Network
+    metadata:
+      layoutPosition:
+        - 2
+        - 0
+    properties:
+      name: Default-AWS
+      networkType: existing
+      constraints:
+        - tag: 'type:isolated-net'
+        - tag: 'env:dev'
+  scDataflow:
+    type: Cloud.Machine
+    dependsOn:
+      - EMR-Cluster
+    metadata:
+      layoutPosition:
+        - 3
+        - 1
+    properties:
+      constraints:
+        - tag: 'env:dev'
+      name: Spring Cloud Dataflow
+      image: ubuntu
+      flavor: small
+      networks:
+        - name: '${fp-isonet.name}'
+  rabbitMQ:
+    type: Cloud.Machine
+    metadata:
+      layoutPosition:
+        - 3
+        - 2
+    properties:
+      constraints:
+        - tag: 'env:dev'
+      name: Rabbit MQ
+      image: '${input.webtierimage}'
+      flavor: '${input.webtiersize}'
+      networks:
+        - name: '${fp-isonet.name}'
+  redisCache:
+    type: Cloud.Machine
+    metadata:
+      layoutPosition:
+        - 3
+        - 3
+    properties:
+      constraints:
+        - tag: 'env:dev'
+      name: Redis
+      image: '${input.webtierimage}'
+      flavor: '${input.webtiersize}'
+      networks:
+        - name: '${fp-isonet.name}'
+  apacheGeode:
+    type: Cloud.Machine
+    dependsOn:
+      - RDS-instance
+    metadata:
+      layoutPosition:
+        - 3
+        - 4
+    properties:
+      constraints:
+        - tag: 'env:dev'
+      name: ApacheGeode
+      image: '${input.webtierimage}'
+      flavor: '${input.webtiersize}'
+      networks:
+        - name: '${fp-isonet.name}'
+  Instance-Profile:
+    type: Cloud.Service.AWS.IAM.Instance.Profile
+    metadata:
+      layoutPosition:
+        - 4
+        - 2
+    properties:
+      name: '${input.cluster_name}-instance-profile'
+      roles:
+        - '${IAM-InstanceProfile-Role.name}'
+      provider: AWS B30
+      provider_region: us-east-1
+      path: /
+      name_prefix: ''
+      count: 1
+  EMR-Cluster:
+    type: Cloud.Service.AWS.EMR.Cluster
+    metadata:
+      layoutPosition:
+        - 4
+        - 3
+    properties:
+      applications:
+        - Spark
+      bootstrap_action:
+        - args:
+            - instance.isMaster=true
+            - echo running on master node
+          name: runif
+          path: 's3://us-east-2.elasticmapreduce/bootstrap-actions/run-if'
+      configurations: test-fixtures/emr_configurations.json
+      core_instance_count: '${input.corenode_count}'
+      core_instance_type: '${input.coreinstance_type}'
+      ec2_attributes:
+        - instance_profile: '${Instance-Profile.arn}'
+      master_instance_type: '${input.masterinstance_type}'
+      name: '${input.cluster_name}'
+      release_label: '${input.release_number}'
+      service_role: '${IAM-Role.arn}'
+      provider: AWS B30
+      provider_region: us-east-1
+      constraints:
+        - tags:
+            dns_zone: env_zone
+            env: env
+            name: name-env
+            role: rolename
+  RDS-instance:
+    type: Cloud.Service.AWS.RDS.Cluster.Instance
+    metadata:
+      layoutPosition:
+        - 4
+        - 4
+    properties:
+      provider: AWS B30
+      #note that the provider should be the exact string name of the Cloud Account
+      #where you want to run the Instance
+      provider_region: us-east-1
+      #note that the provider region should be the exact string name of region within 
+      #the Cloud Account where you want to run the Instance
+      count: '${input.clusternodecount}'
+      cluster_identifier: '${RDS-cluster.id}'
+      instance_class: '${input.rdsinstanceclass}'
+      identifier_prefix: '${input.instanceprefix}'
+  IAM-InstanceProfile-Role:
+    type: Cloud.Service.AWS.IAM.Role
+    metadata:
+      layoutPosition:
+        - 5
+        - 2
+    properties:
+      assume_role_policy: |
+        {
+          "Version": "2008-10-17",
+          "Statement": [
+            {
+              "Sid": "",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      name: '${input.cluster_name}-instance-profile-role'
+      provider: AWS B30
+      provider_region: us-east-1
+  IAM-Role:
+    type: Cloud.Service.AWS.IAM.Role
+    metadata:
+      layoutPosition:
+        - 5
+        - 3
+    properties:
+      assume_role_policy: |
+        {
+          "Version": "2008-10-17",
+          "Statement": [
+            {
+              "Sid": "",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "elasticmapreduce.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      provider: AWS B30
+      provider_region: us-east-1
+      name: '${input.cluster_name}-iam-role'
+  RDS-cluster:
+    type: Cloud.Service.AWS.RDS.Cluster
+    metadata:
+      layoutPosition:
+        - 5
+        - 4
+    properties:
+      provider: AWS B30
+      #note that the provider should be the exact string name of the Cloud Account
+      #where you want to run the Cluster
+      provider_region: us-east-1
+      #note that the provider region should be the exact string name of region within 
+      #the Cloud Account where you want to run the Cluster
+      database_name: '${input.dbname}'
+      master_username: '${input.dbusername}'
+      master_password: '${input.dbpassword}'
+      skip_final_snapshot: '${input.finalsnapshot}'
+      cluster_identifier_prefix: '${input.clusterprefix}'
+  IAM-InstanceProfile-Role-Policy:
+    type: Cloud.Service.AWS.IAM.Role.Policy
+    metadata:
+      layoutPosition:
+        - 6
+        - 2
+    properties:
+      name: iam_emr_profile_policy
+      policy: |
+        {
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Resource": "*",
+                "Action": [
+                    "cloudwatch:*",
+                    "dynamodb:*",
+                    "ec2:Describe*",
+                    "elasticmapreduce:Describe*",
+                    "elasticmapreduce:ListBootstrapActions",
+                    "elasticmapreduce:ListClusters",
+                    "elasticmapreduce:ListInstanceGroups",
+                    "elasticmapreduce:ListInstances",
+                    "elasticmapreduce:ListSteps",
+                    "kinesis:CreateStream",
+                    "kinesis:DeleteStream",
+                    "kinesis:DescribeStream",
+                    "kinesis:GetRecords",
+                    "kinesis:GetShardIterator",
+                    "kinesis:MergeShards",
+                    "kinesis:PutRecord",
+                    "kinesis:SplitShard",
+                    "rds:Describe*",
+                    "s3:*",
+                    "sdb:*",
+                    "sns:*",
+                    "sqs:*"
+                ]
+            }]
+        }
+      role: '${IAM-InstanceProfile-Role.id}'
+      provider: AWS B30
+      provider_region: us-east-1
+  IAM-Role-Policy:
+    type: Cloud.Service.AWS.IAM.Role.Policy
+    metadata:
+      layoutPosition:
+        - 6
+        - 3
+    properties:
+      name: iam_emr_service_policy
+      policy: |
+        {
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Resource": "*",
+                "Action": [
+                    "ec2:AuthorizeSecurityGroupEgress",
+                    "ec2:AuthorizeSecurityGroupIngress",
+                    "ec2:CancelSpotInstanceRequests",
+                    "ec2:CreateNetworkInterface",
+                    "ec2:CreateSecurityGroup",
+                    "ec2:CreateTags",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:DeleteSecurityGroup",
+                    "ec2:DeleteTags",
+                    "ec2:DescribeAvailabilityZones",
+                    "ec2:DescribeAccountAttributes",
+                    "ec2:DescribeDhcpOptions",
+                    "ec2:DescribeInstanceStatus",
+                    "ec2:DescribeInstances",
+                    "ec2:DescribeKeyPairs",
+                    "ec2:DescribeNetworkAcls",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DescribePrefixLists",
+                    "ec2:DescribeRouteTables",
+                    "ec2:DescribeSecurityGroups",
+                    "ec2:DescribeSpotInstanceRequests",
+                    "ec2:DescribeSpotPriceHistory",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeVpcAttribute",
+                    "ec2:DescribeVpcEndpoints",
+                    "ec2:DescribeVpcEndpointServices",
+                    "ec2:DescribeVpcs",
+                    "ec2:DetachNetworkInterface",
+                    "ec2:ModifyImageAttribute",
+                    "ec2:ModifyInstanceAttribute",
+                    "ec2:RequestSpotInstances",
+                    "ec2:RevokeSecurityGroupEgress",
+                    "ec2:RunInstances",
+                    "ec2:TerminateInstances",
+                    "ec2:DeleteVolume",
+                    "ec2:DescribeVolumeStatus",
+                    "ec2:DescribeVolumes",
+                    "ec2:DetachVolume",
+                    "iam:GetRole",
+                    "iam:GetRolePolicy",
+                    "iam:ListInstanceProfiles",
+                    "iam:ListRolePolicies",
+                    "iam:PassRole",
+                    "s3:CreateBucket",
+                    "s3:Get*",
+                    "s3:List*",
+                    "sdb:BatchPutAttributes",
+                    "sdb:Select",
+                    "sqs:CreateQueue",
+                    "sqs:Delete*",
+                    "sqs:GetQueue*",
+                    "sqs:PurgeQueue",
+                    "sqs:ReceiveMessage"
+                ]
+            }]
+        }
+      role: '${IAM-Role.id}'
+      provider: AWS B30
+      provider_region: us-east-1
+  Cloud_Service_AWS_S3_Bucket_Policy_1:
+    type: Cloud.Service.AWS.S3.Bucket.Policy
+    metadata:
+      layoutPosition:
+        - 6
+        - 4
+    properties:
+      bucket: ''
+      policy: ''
+      provider: ''
+      provider_region: ''
