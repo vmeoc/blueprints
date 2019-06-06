@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $${NAMESPACE}
+  namespace: $${NAMESPACE}
+---  
+apiVersion: v1
+data:
+  .dockercfg: <dsfdsfdsf>
+kind: Secret
+metadata:
+  name: jfrog-beta2
+  namespace: $${NAMESPACE}
+type: kubernetes.io/dockercfg
+---   
+apiVersion: v1
+kind: Service
+metadata:
+  name: codestream-demo
+  namespace: $${NAMESPACE}
+  labels:
+    app: codestream-demo
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: codestream-demo
+    tier: frontend
+  type: LoadBalancer 
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: codestream-demo
+  namespace: $${NAMESPACE}
+  labels:
+    app: codestream-demo
+spec:
+  selector:
+    matchLabels:
+      app: codestream-demo
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: codestream-demo
+        tier: frontend
+    spec:
+      containers:
+      - name: codestream-demo
+        image: symphony-tango-beta2.jfrog.io/codestream-demo:$${NAMESPACE}-$${JOB_ID}
+        ports:
+        - containerPort: 80
+          name: codestream-demo
+      imagePullSecrets:
+      - name: jfrog-beta2
