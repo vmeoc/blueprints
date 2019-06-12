@@ -1,0 +1,66 @@
+inputs:
+  environment:
+    type: string
+    enum:
+      - prod
+      - dev
+    description: Production or test deployment
+    title: Deployment type
+  cloud:
+    type: string
+    enum:
+      - azure
+      - aws
+      - vsphere
+    description: Location of Deployment
+    title: Deployment location
+  name:
+    type: string
+    default:
+      - machinename
+    description: Name of Machine
+    title: Name your machine
+  osimage:
+    type: string
+    enum:
+      - ubuntu
+      - centos
+      - redhat
+      - windows
+    description: Choose your OS distribution
+    title: OS Choice
+  size:
+    type: string
+    enum:
+      - small
+      - medium
+      - large
+    description: Choose your environment size
+    title: EnvSize Choice
+resources:
+  Cloud_Network_1:
+    type: Cloud.Network
+    properties:
+      name: Network
+      networkType: existing
+      resourceGroupName: '${input.cloud == "azure" ? "RG1-DJ" : ""}'
+  vm01:
+    type: Cloud.Machine
+    properties:
+      name: '${input.name}'
+      image: 'dja-${input.osimage}'
+      flavor: 'dja-${input.size}'
+      resourceGroupName:
+      remoteAccess:
+        authentication: '${input.cloud == "aws" ? "generatedPublicPrivateKey" : "usernamePassword"}'
+        username: david
+        password: VMware1!
+      cloudConfig:
+        #cloud-config
+        runcmd:
+          - mkdir -p /var/www/html/mywebsite
+      networks:
+        - name: '${Cloud_Network_1.name}'
+      constraints:
+        - tag: 'env:${input.environment}'
+        - tag: '${input.cloud}'
