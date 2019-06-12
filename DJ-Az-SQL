@@ -1,0 +1,23 @@
+formatVersion: 1
+inputs: {}
+resources:
+  Cloud_Service_Azure_SQL_Server_1:
+    type: Cloud.Service.Azure.SQL.Server
+    properties:
+      name: djasqlsrv1
+      region: West Europe
+      account: DJA_Azure
+      version: '12.0'
+      administrator_login: djadmin
+      resource_group_name: RG1-DJ
+      administrator_login_password: VMware1!
+  Cloud_Service_Azure_SQL_Database_1:
+    type: Cloud.Service.Azure.SQL.Database
+    dependsOn:
+      - Cloud_Service_Azure_SQL_Server_1
+    properties:
+      name: djadb1
+      region: West Europe
+      account: DJA_Azure
+      server_name: djasqlsrv1
+      resource_group_name: RG1-DJ
